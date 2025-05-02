@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from model import LayerNormalization
+from model import LayerNormalization, PatchEmbeddings
 
 def test_layer_norm():
     x = torch.randn(10, 20)  # batch of 10 samples, each with 20 features
@@ -25,3 +25,11 @@ def test_layer_norm():
     
     print("Mean absolute difference:", diff)
     assert diff < threshold
+
+
+def test_patch_embeddings():
+    image = torch.randn(4, 3, 224, 224)
+    patch_embed = PatchEmbeddings()
+    out = patch_embed(image)
+
+    assert out.shape == (4, 196, 768), f"Unexpected shape: {out.shape}"
