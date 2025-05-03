@@ -6,3 +6,5 @@ cifar10/
 
 __pycache__
 .pytest_cache
+
+models/
