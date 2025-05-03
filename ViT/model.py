@@ -182,3 +182,74 @@ class ViTEncoder(nn.Module):
             all_hidden_states = all_hidden_states + (curr_hidden_state, )
         
         return tuple(v for v in [curr_hidden_state, all_hidden_states, all_attention_scores] if v is not None)
+    
+
+class ViTPooler(nn.Module):
+    """
+    Extracts the global information of the input image from the [cls] token embedding for classification tasks.
+    """
+    def __init__(self, config) -> None:
+        super().__init__()
+        self.dense = nn.Linear(config["hidden_dims"], config["hidden_dims"])
+        self.activation = nn.Tanh()
+
+    def forward(self, hidden_state):
+        cls_embedding = hidden_state[:, 0]
+        pooled_output = self.dense(cls_embedding)
+        pooled_activation = self.activation(pooled_output)
+        return pooled_activation
+
+
+class ViTModel(nn.Module):
+    """
+    Implements the complete Vision Transfomer (ViT) architecture. It includes pre-processing of the input image into
+    patch embeddings, parsing it through Transformer and Encoder blocks, and summarizing it into the final output 
+    for classification.
+    """
+    def __init__(self, config) -> None:
+        super().__init__()
+        self.config = config
+
+        self.embedding = InputEmbedding(config)
+        self.encoder = ViTEncoder(config)
+
+        self.layerNorm = LayerNormalization()
+        self.pooler = ViTPooler(config)
+    
+    def forward(self, input_image, return_scores=False, output_hidden_states=False):
+        image_embedding = self.embedding(input_image)
+        encoder_output = self.encoder(image_embedding, return_scores, output_hidden_states)
+        attention_output = encoder_output[0]
+        attention_output_norm = self.layerNorm(attention_output)
+        pooled_output = self.pooler(attention_output_norm)
+
+        return (attention_output_norm, pooled_output) + encoder_output[1:]
+    
+
+class ViTImageClassifier(nn.Module):
+    
+    def __init__(self, config) -> None:
+        super().__init__()
+        self.config = config
+        self.num_labels = config["num_labels"]
+
+        self.vit_model = ViTModel(config)
+        self.classifier = nn.Linear(config["hidden_dims"], self.num_labels)
+
+    def forward(self, image_input, labels=None, return_scores=False, output_hidden_states=False):
+        outputs = self.vit_model(image_input, return_scores, output_hidden_states)
+
+        attention_output = outputs[0]
+        classifier_output = self.classifier(attention_output[:, 0, :])
+
+        loss = None
+        if labels is not None:
+            if self.num_labels > 1:
+                loss_fn = nn.CrossEntropyLoss()
+                loss = loss_fn(classifier_output.view(-1, self.num_labels), labels.view(-1))
+        
+        final_output = (classifier_output, ) + outputs[2:] # outputs = (attention_output_norm, pooled_output) + encoder_output[1:]
+
+        return ((loss, ) + final_output) if labels is not None else final_output
+
+                
