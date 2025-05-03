@@ -73,7 +73,7 @@ class MultiHeadAttention(nn.Module):
     Implements the multi-head self-attention block for Vision Transformers (ViT), allowing each image patch
     to extract contextual relationships from its tokens.
     """
-    def __init__(self, config) -> None:
+    def __init__(self, config):
         super().__init__()
         self.hidden_dim = config["hidden_dims"]
         self.num_attn_heads = config["num_attn_heads"]
@@ -115,3 +115,70 @@ class MultiHeadAttention(nn.Module):
 
         return (reshaped_final_attn_layer, attention_probabilities) if return_score else (reshaped_final_attn_layer,)
 
+
+class ViTBlock(nn.Module):
+    """
+    Contains the multi-head self-attention and feed-forward MLP layers with residual connections and 
+    normalization to refine image patch embeddings. Implements the core Transformer architecture used in ViTs.
+    """
+    def __init__(self, config):
+        super().__init__()
+        self.multi_head_attn = MultiHeadAttention(config)
+        self.layerNorm1 = LayerNormalization()
+        self.layerNorm2 = LayerNormalization()
+        self.mlp_dense_layer1 = nn.Linear(config["hidden_dims"], config["upsample_mlp_dims"])
+        self.activation_fnc = nn.GELU()
+        self.mlp_dense_layer2 = nn.Linear(config["upsample_mlp_dims"], config["hidden_dims"])
+        self.dropout = nn.Dropout(config["dropout"])
+        
+    def forward(self, image_embedding,return_score=False):
+        # Checkpoint 1: Normalize and pass through MSA block
+        normalized_embedding = self.layerNorm1(image_embedding)
+        attention_block_outputs = self.multi_head_attn(normalized_embedding, return_score)
+        
+        attention_output_layer = attention_block_outputs[0]
+        attention_probabilities = attention_block_outputs[1:]
+        residual_connection_1 = image_embedding + attention_output_layer
+
+        # Checkpoint 2: Normalize and pass through MLP block
+        residual_normalization = self.layerNorm2(residual_connection_1)
+        mlp_upsample_output = self.mlp_dense_layer1(residual_normalization)
+        mlp_upsample_activ = self.activation_fnc(mlp_upsample_output)
+        mlp_downsample_output = self.mlp_dense_layer2(mlp_upsample_activ)
+        mlp_dropout = self.dropout(mlp_downsample_output)
+
+        residual_connection_2 = mlp_dropout + residual_connection_1
+        final_output = (residual_connection_2, ) + attention_probabilities
+
+        return final_output
+
+
+class ViTEncoder(nn.Module):
+    """
+    Stacks multiple Transformer encoder blocks (ViTBlocks) to capture global context and deeper 
+    hierarchical representations in ViTs.
+    """
+    def __init__(self, config) -> None:
+        super().__init__()
+        self.config = config
+        self.layers = nn.ModuleList([ViTBlock(config) for _ in range(config["num_attn_blocks"])])
+
+    def forward(self, input_embedding, return_scores=False, output_hidden_states=False):
+        all_hidden_states = () if output_hidden_states else None
+        all_attention_scores = () if return_scores else None
+        curr_hidden_state = input_embedding
+
+        for i, layer in enumerate(self.layers):
+            if output_hidden_states:
+                all_hidden_states = all_hidden_states + (curr_hidden_state, )
+            
+            layer_outputs = layer(curr_hidden_state, return_scores)
+            curr_hidden_state = layer_outputs[0]
+
+            if return_scores:
+                all_attention_scores = all_attention_scores + (layer_outputs[1], )
+            
+        if output_hidden_states:
+            all_hidden_states = all_hidden_states + (curr_hidden_state, )
+        
+        return tuple(v for v in [curr_hidden_state, all_hidden_states, all_attention_scores] if v is not None)
