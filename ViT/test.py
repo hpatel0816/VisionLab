@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
+import matplotlib.pyplot as plt
 
-from model import LayerNormalization, PatchEmbeddings
+from model import *
 
 def test_layer_norm():
     x = torch.randn(10, 20)  # batch of 10 samples, each with 20 features
@@ -23,8 +24,7 @@ def test_layer_norm():
     diff = torch.mean(torch.abs(out_my - out_torch))
     threshold = 1e-4
     
-    print("Mean absolute difference:", diff)
-    assert diff < threshold
+    assert diff < threshold, f"The mean absolute difference of {diff} is beyond the threshold ({threshold})."
 
 
 def test_patch_embeddings():
@@ -32,4 +32,41 @@ def test_patch_embeddings():
     patch_embed = PatchEmbeddings()
     out = patch_embed(image)
 
-    assert out.shape == (4, 196, 768), f"Unexpected shape: {out.shape}"
+    assert out.shape == (4, 196, 768), f"Expected shape: (4, 196, 768). Recieved shape: {out.shape}."
+
+
+def test_input_embeddings():
+    config = {
+        "image_size": 224,
+        "patch_size": 16,
+        "num_channels": 3,
+        "hidden_dims": 768,
+        "dropout": 0.0 
+    }
+
+    model = InputEmbedding(config)
+    dummy_input = torch.randn(2, 3, 224, 224)
+    output = model(dummy_input)
+
+    # Calculate expected number of patches
+    num_patches = (config["image_size"] // config["patch_size"]) ** 2
+    expected_shape = (2, num_patches + 1, config["hidden_dims"])
+
+    assert output.shape == expected_shape, f"Expected shape: {expected_shape}. Recieved shape: {output.shape}."
+
+
+def test_self_attention():
+    config = {
+        "hidden_dims": 768,
+        "num_attn_heads": 12,
+        "dropout": 0.1,
+    }
+
+    # Sample input: batch size = 2, sequence length = 197 (196 patches + 1 CLS), hidden dim = 768
+    input = torch.randn(2, 197, config["hidden_dims"])
+
+    attn_module = MultiHeadAttention(config)
+    output, attn_scores = attn_module(input, return_score=True)
+
+    assert output.shape == (2, 197, config["hidden_dims"]), f"Expected shape: {(2, 197, config["hidden_dims"])}. Recieved shape: {output.shape}."
+    assert attn_scores.shape == (2, config["num_attn_heads"], 197, 197), f"Expected shape: {(2, config["num_attn_heads"], 197, 197)}. Recieved shape: {attn_scores.shape}."
