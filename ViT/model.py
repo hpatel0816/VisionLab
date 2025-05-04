@@ -4,6 +4,9 @@ import math
 
 
 class LayerNormalization(nn.Module):
+    """
+    Custom implementation of the Layer Normalization from PyTorch.
+    """
     def __init__(self, epsilon: float = 1e-6):
         super().__init__()
         self.epsilon = epsilon
@@ -227,7 +230,10 @@ class ViTModel(nn.Module):
     
 
 class ViTImageClassifier(nn.Module):
-    
+    """
+    Contains the classification head of the ViT architecture that maps the pooled [CLS] token to class logits 
+    and outputs the final prediction.
+    """
     def __init__(self, config) -> None:
         super().__init__()
         self.config = config
